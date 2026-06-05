@@ -36,6 +36,7 @@ import { VolumetricLightScatteringPostProcess } from "@babylonjs/core/PostProces
 import { DepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/depthOfFieldEffect";
 import { GizmoManager } from "@babylonjs/core/Gizmos/gizmoManager";
 import { DepthRenderer } from "@babylonjs/core/Rendering/depthRenderer";
+import { PhysicsImpostor } from "@babylonjs/core/Physics/v1/physicsImpostor";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type {
     BoneControlInfo,
@@ -417,6 +418,10 @@ import { MmdModelLoader } from "babylon-mmd/esm/Loader/mmdModelLoader";
 import { PathNormalize } from "babylon-mmd/esm/Loader/Util/pathNormalize";
 import { SdefInjector } from "babylon-mmd/esm/Loader/sdefInjector";
 import { StreamAudioPlayer } from "babylon-mmd/esm/Runtime/Audio/streamAudioPlayer";
+import { PhysicsStaticPlaneShape } from "babylon-mmd/esm/Runtime/Optimized/Physics/Bind/physicsShape";
+import { RigidBody } from "babylon-mmd/esm/Runtime/Optimized/Physics/Bind/rigidBody";
+import { RigidBodyConstructionInfo } from "babylon-mmd/esm/Runtime/Optimized/Physics/Bind/rigidBodyConstructionInfo";
+import { MotionType } from "babylon-mmd/esm/Runtime/Optimized/Physics/Bind/motionType";
 import { MmdAmmoJSPlugin } from "babylon-mmd/esm/Runtime/Physics/mmdAmmoJSPlugin";
 import { MmdAmmoPhysics } from "babylon-mmd/esm/Runtime/Physics/mmdAmmoPhysics";
 import { MmdBulletPhysics } from "babylon-mmd/esm/Runtime/Optimized/Physics/mmdBulletPhysics";
@@ -1250,6 +1255,8 @@ ${beforeFogAppendBlock}
     private physicsAvailable = false;
     private physicsBackend: "none" | "bullet" | "ammo" = "none";
     private physicsEnabled = true;
+    private groundPhysicsBody: RigidBody | null = null;
+    private groundPhysicsImpostor: PhysicsImpostor | null = null;
     private physicsSimulationRateHz: PhysicsSimulationRateHz = 60;
     private physicsGravityAcceleration = 98;
     private physicsGravityDirection = new Vector3(0, -100, 0);
@@ -2611,7 +2618,18 @@ ${beforeFogAppendBlock}
     }
 
     private syncScenePhysicsSimulationState(): void {
-        this.scene.physicsEnabled = this.getPhysicsEnabled() && this.isPhysicsSimulationActive();
+        const shouldEnable = this.getPhysicsEnabled() && this.isPhysicsSimulationActive();
+        const isCurrentlyEnabled = this.scene.physicsEnabled;
+
+        if (this.physicsBackend === "bullet" && this.groundPhysicsBody && this.bulletPhysicsRuntime) {
+            if (!shouldEnable && isCurrentlyEnabled) {
+                this.bulletPhysicsRuntime.removeRigidBodyFromGlobal(this.groundPhysicsBody);
+            } else if (shouldEnable && !isCurrentlyEnabled) {
+                this.bulletPhysicsRuntime.addRigidBodyToGlobal(this.groundPhysicsBody);
+            }
+        }
+
+        this.scene.physicsEnabled = shouldEnable;
     }
 
     public setExternalPlaybackSimulationEnabled(enabled: boolean): boolean {
@@ -3052,6 +3070,19 @@ ${beforeFogAppendBlock}
         (this.mmdRuntime as unknown as { _physics: MmdBulletPhysics | null })._physics = this.physicsRuntime;
         this.physicsBackend = "bullet";
         this.applyPhysicsSimulationRate();
+
+        // Attach static ground collider so PMX rigid bodies collide with the floor.
+        if (this.ground) {
+            const shape = new PhysicsStaticPlaneShape(runtime, new Vector3(0, 1, 0), 0);
+            const info = new RigidBodyConstructionInfo(runtime.wasmInstance);
+            info.shape = shape;
+            info.motionType = MotionType.Static;
+            info.mass = 0;
+            info.friction = 0.5;
+            const body = new RigidBody(runtime, info);
+            runtime.addRigidBodyToGlobal(body);
+            this.groundPhysicsBody = body;
+        }
     }
 
     private async initializeAmmoPhysicsBackend(): Promise<void> {
@@ -3077,6 +3108,16 @@ ${beforeFogAppendBlock}
         this.physicsPlugin = plugin;
         this.applyPhysicsSimulationRate();
         this.scene.enablePhysics(new Vector3(0, -this.physicsGravityAcceleration, 0), plugin);
+
+        // Attach static ground collider so PMX rigid bodies collide with the floor.
+        if (this.ground) {
+            this.groundPhysicsImpostor = new PhysicsImpostor(
+                this.ground,
+                PhysicsImpostor.BoxImpostor,
+                { mass: 0, friction: 0.5, restitution: 0.1 },
+                this.scene
+            );
+        }
 
         this.bulletPhysicsRuntime = null;
         this.physicsRuntime = new MmdAmmoPhysics(this.scene);
@@ -6804,6 +6845,15 @@ ${beforeFogAppendBlock}
         this.mmdRuntime.removeAnimatable(this.mmdCamera);
         this.mmdCamera.dispose();
         this.mmdRuntime.dispose(this.scene);
+        if (this.groundPhysicsBody && this.bulletPhysicsRuntime) {
+            this.bulletPhysicsRuntime.removeRigidBodyFromGlobal(this.groundPhysicsBody);
+            this.groundPhysicsBody.dispose();
+            this.groundPhysicsBody = null;
+        }
+        if (this.groundPhysicsImpostor) {
+            this.groundPhysicsImpostor.dispose();
+            this.groundPhysicsImpostor = null;
+        }
         if (this.bulletPhysicsRuntime) {
             this.bulletPhysicsRuntime.unregister();
             this.bulletPhysicsRuntime.dispose();

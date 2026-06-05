@@ -27,3 +27,21 @@
 - 2. VMDエクスポート
 - 3. キー編集の範囲操作（複製/貼り付け/スケール）
 - 4. 回転補間のMMD実機比較テスト自動化
+
+## 6. Playback & Physics Issues (2026-06-05)
+
+### Issue A: Physics stuttering when audio is NOT loaded
+**Symptom:** When importing a PMX model and VMD motion without audio, rigid bodies (skirts, hair, accessories) behave erratically — stuttering, feeling lighter, apparent frame drops. Adding an audio track "fixes" the issue.
+
+**Root Cause:** Two fundamentally different playback paths exist:
+- **Without audio:** `advanceManualPlaybackWithoutAudio()` advances frames in discrete integer jumps (`Math.floor()` every ~2 frames) while physics steps every render frame. Bone transforms snap via `seekAnimation()`, creating discontinuous kinematic inputs.
+- **With audio:** `mmdRuntime.beforePhysics()` receives continuous fractional frame time every render frame, providing smooth bone interpolation.
+
+**Code:** `src/mmd-manager.ts` lines 3936-3953 (`play()`), 6735-6747 (`advanceManualPlaybackWithoutAudio()`), 2968-3006 (render loop).
+
+### Issue B: No audio track management UI
+**Symptom:** Once audio is loaded, there is no UI to remove, replace, or mute it. The only audio-related UI is the export checkbox (`export-ui-controller.ts`).
+
+**Impact:** User must reload the entire project or manually edit the project JSON to remove audio.
+
+**Code:** `src/assets/motion-asset-service.ts` lines 250-274 (audio loading). Missing: audio track panel, remove/swap controls.

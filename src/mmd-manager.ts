@@ -1163,6 +1163,7 @@ ${beforeFogAppendBlock}
     private nextRenderDueTimestampMs = performance.now();
     private renderFpsLimit = 0;
     private ground: Mesh | null = null;
+    private groundVisible = true;
     private skydome: Mesh | null = null;
     private backgroundImageLayer: Layer | null = null;
     private backgroundImagePath: string | null = null;
@@ -2239,7 +2240,7 @@ ${beforeFogAppendBlock}
     }
 
     public isGroundVisible(): boolean {
-        return this.ground?.isEnabled() ?? false;
+        return this.groundVisible;
     }
 
     public isBackgroundBlack(): boolean {
@@ -2260,8 +2261,14 @@ ${beforeFogAppendBlock}
     }
 
     public setGroundVisible(visible: boolean): void {
+        this.groundVisible = visible;
         if (!this.ground) return;
-        this.ground.setEnabled(visible);
+        // Use material alpha instead of setEnabled to preserve shadow receiving.
+        // Alpha 0.001 is nearly invisible but still allows shadow receiving.
+        const mat = this.ground.material as StandardMaterial | null;
+        if (mat) {
+            mat.alpha = visible ? 1.0 : 0.001;
+        }
     }
 
     public toggleGroundVisible(): boolean {

@@ -4065,6 +4065,20 @@ ${beforeFogAppendBlock}
         return this.audioSourcePath;
     }
 
+    removeAudio(): void {
+        if (this.audioPlayer) {
+            void this.mmdRuntime.setAudioPlayer(null);
+            this.audioPlayer.dispose();
+            this.audioPlayer = null;
+        }
+        if (this.audioBlobUrl) {
+            URL.revokeObjectURL(this.audioBlobUrl);
+            this.audioBlobUrl = null;
+        }
+        this.audioSourcePath = null;
+        this.manualPlaybackWithoutAudio = true;
+    }
+
     get totalFrames(): number {
         return this._totalFrames;
     }

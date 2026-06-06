@@ -243,6 +243,9 @@ export class UIController {
     private shaderPanelController: ShaderPanelController | null = null;
     private postFxWgslToonPath: string | null = null;
     private postFxWgslToonText: string | null = null;
+    private audioInfoSection: HTMLElement | null = null;
+    private audioFileName: HTMLElement | null = null;
+    private btnRemoveAudio: HTMLButtonElement | null = null;
     private currentProjectFilePath: string | null = null;
     private readonly onLocaleChanged = (): void => {
         this.applyLocalizedUiState();
@@ -308,6 +311,9 @@ export class UIController {
         this.shaderResetButton = document.getElementById("btn-shader-reset") as HTMLButtonElement | null;
         this.shaderPanelNote = document.getElementById("shader-panel-note");
         this.shaderMaterialList = document.getElementById("shader-material-list");
+        this.audioInfoSection = document.getElementById("audio-info-section");
+        this.audioFileName = document.getElementById("audio-file-name");
+        this.btnRemoveAudio = document.getElementById("btn-remove-audio") as HTMLButtonElement | null;
 
         this.modelEdgeController = new ModelEdgeController({
             mmdManager: this.mmdManager,
@@ -490,6 +496,15 @@ export class UIController {
         this.btnPlay.addEventListener("click", () => this.play());
         this.btnPause.addEventListener("click", () => this.pause());
         this.btnStop?.addEventListener("click", () => this.stop());
+        this.btnRemoveAudio?.addEventListener("click", () => {
+            this.mmdManager.removeAudio();
+            if (this.audioInfoSection) {
+                this.audioInfoSection.style.display = "none";
+            }
+            this.timeline.setWaveformPeaks(null);
+            this.setStatus("Audio removed", false);
+            this.showToast("Audio removed", "info");
+        });
         this.btnSkipStart.addEventListener("click", () => {
             const { startFrame } = this.getPlaybackFrameRange();
             this.mmdManager.seekToBoundary(startFrame);
@@ -979,6 +994,10 @@ export class UIController {
         this.mmdManager.onAudioLoaded = (name: string) => {
             this.setStatus("Audio loaded", false);
             this.showToast(`Loaded audio: ${name}`, "success");
+            if (this.audioFileName && this.audioInfoSection) {
+                this.audioFileName.textContent = name;
+                this.audioInfoSection.style.display = "";
+            }
             void this.refreshTimelineWaveformFromAudio();
         };
 
@@ -1050,6 +1069,17 @@ export class UIController {
             }
             console.warn("Failed to refresh timeline waveform:", err);
             this.timeline.setWaveformPeaks(null);
+        }
+    }
+
+    private refreshAudioPanel(): void {
+        const audioPath = this.mmdManager.getAudioSourcePath();
+        if (audioPath && this.audioInfoSection && this.audioFileName) {
+            const fileName = audioPath.replace(/^.*[/\\]/, "").replace(/\.(mp3|wav|wave|ogg)$/i, "");
+            this.audioFileName.textContent = fileName;
+            this.audioInfoSection.style.display = "";
+        } else if (this.audioInfoSection) {
+            this.audioInfoSection.style.display = "none";
         }
     }
 
@@ -1893,7 +1923,8 @@ export class UIController {
                 const ok = await this.mmdManager.loadX(filePath);
                 if (ok) {
                     this.setStatus("X model loaded", false);
-                    this.accessoryPanelController?.refresh();
+            this.accessoryPanelController?.refresh();
+            this.refreshAudioPanel();
                     this.showToast(`Loaded X model: ${filePath.replace(/^.*[\\/]/, "")}`, "success");
                 } else {
                     this.setStatus("X model load failed", false);
